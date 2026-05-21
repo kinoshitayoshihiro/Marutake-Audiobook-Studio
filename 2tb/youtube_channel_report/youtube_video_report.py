@@ -8,7 +8,7 @@ import gzip
 import io
 import re
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
@@ -69,6 +69,11 @@ FINAL_HEADERS = [
 ]
 
 
+def log_progress(message: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {message}", file=sys.stderr, flush=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -86,6 +91,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--normal-output", default="youtube_video_report_last_90_days_normal_video.csv")
     parser.add_argument("--short-output", default="youtube_video_report_last_90_days_short_candidate.csv")
     parser.add_argument("--membership-overrides", default="membership_overrides.csv")
+    parser.add_argument(
+        "--no-open-browser",
+        action="store_true",
+        help="Do not auto-open the OAuth URL in a browser; print URL only.",
+    )
     return parser.parse_args()
 
 
@@ -165,7 +175,7 @@ def chunked(items: Sequence[str], size: int) -> Iterable[Sequence[str]]:
         yield items[index : index + size]
 
 
-def load_credentials(client_secrets_path: Path, token_path: Path) -> Credentials:
+def load_credentials(client_secrets_path: Path, token_path: Path, open_browser: bool = True) -> Credentials:
     creds = None
     if token_path.exists():
         creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
@@ -187,9 +197,13 @@ def load_credentials(client_secrets_path: Path, token_path: Path) -> Credentials
         if not client_secrets_path.exists():
             raise SystemExit("client_secret.json not found.")
         flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), SCOPES)
+        if open_browser:
+            log_progress("Starting OAuth local server and opening browser")
+        else:
+            log_progress("Starting OAuth local server in manual URL mode")
         creds = flow.run_local_server(
             port=0,
-            open_browser=False,
+            open_browser=open_browser,
             authorization_prompt_message=("\nOpen this URL in your browser to continue OAuth:\n{url}\n"),
         )
     token_path.write_text(creds.to_json(), encoding="utf-8")
@@ -276,7 +290,9 @@ def fetch_upload_video_ids(youtube, playlist_id: str) -> List[str]:
         return []
     video_ids: List[str] = []
     page_token = None
+    page = 0
     while True:
+        page += 1
         response = youtube.playlistItems().list(
             part="contentDetails",
             playlistId=playlist_id,
@@ -288,8 +304,11 @@ def fetch_upload_video_ids(youtube, playlist_id: str) -> List[str]:
             if video_id:
                 video_ids.append(video_id)
         page_token = response.get("nextPageToken")
+        if page == 1 or page % 10 == 0:
+            log_progress(f"uploads playlist pages={page}, ids={len(video_ids)}")
         if not page_token:
             break
+    log_progress(f"uploads playlist completed: ids={len(video_ids)}")
     return video_ids
 
 
@@ -335,7 +354,9 @@ def fetch_core_analytics_rows_for_video_ids(
     batch_size: int = 100,
 ) -> List[Dict[str, object]]:
     rows_by_video_id: Dict[str, Dict[str, object]] = {}
-    for batch in chunked(list(video_ids), batch_size):
+    batches = list(chunked(list(video_ids), batch_size))
+    total = len(batches)
+    for idx, batch in enumerate(batches, start=1):
         response = (
             analytics.reports()
             .query(
@@ -356,6 +377,8 @@ def fetch_core_analytics_rows_for_video_ids(
                 "estimatedMinutesWatched": row[2],
                 "averageViewDuration": row[3],
             }
+        if idx == 1 or idx % 10 == 0 or idx == total:
+            log_progress(f"analytics batches={idx}/{total}, rows={len(rows_by_video_id)}")
     return list(rows_by_video_id.values())
 
 
@@ -383,7 +406,9 @@ def build_base_rows(
 
 def fetch_video_metadata(youtube, video_ids: Sequence[str]) -> Dict[str, Dict[str, str]]:
     metadata_by_video_id: Dict[str, Dict[str, str]] = {}
-    for batch in chunked(video_ids, 50):
+    batches = list(chunked(video_ids, 50))
+    total = len(batches)
+    for idx, batch in enumerate(batches, start=1):
         response = youtube.videos().list(part="snippet,contentDetails,status", id=",".join(batch), maxResults=50).execute()
         for item in response.get("items", []):
             snippet = item.get("snippet", {})
@@ -398,6 +423,8 @@ def fetch_video_metadata(youtube, video_ids: Sequence[str]) -> Dict[str, Dict[st
                 "status.privacyStatus": status.get("privacyStatus", ""),
                 "status.uploadStatus": status.get("uploadStatus", ""),
             }
+        if idx == 1 or idx % 10 == 0 or idx == total:
+            log_progress(f"metadata batches={idx}/{total}, rows={len(metadata_by_video_id)}")
     return metadata_by_video_id
 
 
@@ -475,16 +502,21 @@ def download_report_csv_text(reporting, download_url: str) -> str:
 
 def aggregate_reach_by_video_id(reporting, start_date: date, end_date: date) -> tuple[Dict[str, Dict[str, float]], List[str]]:
     warnings: List[str] = []
+    log_progress("reach: selecting report type")
     report_type_id = select_reach_report_type_id(reporting)
+    log_progress(f"reach: report type={report_type_id}")
     job_id, job_created = find_or_create_reach_job(reporting, report_type_id)
+    log_progress(f"reach: job={job_id}, created={job_created}")
     if job_created:
         warnings.append("A new YouTube Reporting API reach job was created. Reports may take 24-48 hours to appear.")
     reports = list_job_reports(reporting, job_id, start_date, end_date)
+    log_progress(f"reach: reports={len(reports)}")
     if not reports:
         warnings.append("No downloadable reach reports are available yet for the requested date range.")
         return {}, warnings
     reach_by_video_id: Dict[str, Dict[str, float]] = {}
-    for report in reports:
+    total = len(reports)
+    for idx, report in enumerate(reports, start=1):
         csv_text = download_report_csv_text(reporting, report["downloadUrl"])
         reader = csv.DictReader(io.StringIO(csv_text))
         for row in reader:
@@ -498,6 +530,8 @@ def aggregate_reach_by_video_id(reporting, start_date: date, end_date: date) -> 
             bucket = reach_by_video_id.setdefault(video_id, {"impressions": 0.0, "ctr_weighted_sum": 0.0})
             bucket["impressions"] += impressions
             bucket["ctr_weighted_sum"] += impressions * ctr_value
+        if idx == 1 or idx % 10 == 0 or idx == total:
+            log_progress(f"reach reports processed={idx}/{total}, videos={len(reach_by_video_id)}")
     aggregated: Dict[str, Dict[str, float]] = {}
     for video_id, bucket in reach_by_video_id.items():
         impressions = bucket["impressions"]
@@ -604,18 +638,34 @@ def main() -> int:
     short_output_path = (base_dir / args.short_output).resolve()
     membership_overrides_path = (base_dir / args.membership_overrides).resolve()
     try:
-        creds = load_credentials(client_secrets_path, token_path)
+        log_progress("loading credentials")
+        creds = load_credentials(
+            client_secrets_path,
+            token_path,
+            open_browser=not args.no_open_browser,
+        )
+        log_progress("building API clients")
         youtube = build("youtube", "v3", credentials=creds)
         analytics = build("youtubeAnalytics", "v2", credentials=creds)
         reporting = build("youtubereporting", "v1", credentials=creds)
+        log_progress("fetching channel context")
         channel_context = fetch_channel_context(youtube)
         channel_title = channel_context["title"]
+        log_progress(f"channel={channel_title}")
         upload_video_ids = fetch_upload_video_ids(youtube, channel_context.get("uploads_playlist", ""))
+        log_progress("fetching analytics rows")
         base_rows = build_base_rows(analytics, input_csv_path, start_date, end_date, upload_video_ids)
         video_ids = [str(row["videoId"]) for row in base_rows]
+        log_progress(f"analytics rows={len(base_rows)}")
+        log_progress("fetching metadata")
         metadata_by_video_id = fetch_video_metadata(youtube, video_ids) if video_ids else {}
+        log_progress(f"metadata rows={len(metadata_by_video_id)}")
         membership_overrides = load_membership_overrides(membership_overrides_path)
+        log_progress(f"membership overrides={len(membership_overrides)}")
+        log_progress("aggregating reach data")
         reach_by_video_id, warnings = aggregate_reach_by_video_id(reporting, start_date, end_date)
+        log_progress(f"reach rows={len(reach_by_video_id)}")
+        log_progress("enriching and writing outputs")
         enriched_rows = enrich_rows(base_rows, metadata_by_video_id, reach_by_video_id, membership_overrides)
         all_rows = enriched_rows
         normal_rows = [row for row in enriched_rows if row["content_type_bucket"] == "normal_video"]
