@@ -1,0 +1,29 @@
+# Keep Google Drive/local data out of GitHub by default.
+*
+
+# Git repository metadata files.
+!.gitignore
+
+# Python and shell tools.
+!2tb/
+2tb/*
+!2tb/*.py
+!2tb/*.php
+!2tb/tools/
+2tb/tools/*
+!2tb/tools/*.py
+
+# YouTube report runners and their dependency manifest.
+!2tb/youtube_channel_report/
+2tb/youtube_channel_report/*
+!2tb/youtube_channel_report/*.py
+!2tb/youtube_channel_report/*.sh
+!2tb/youtube_channel_report/requirements.txt
+
+# Local execution artifacts and secrets must stay local.
+**/__pycache__/
+**/.venv/
+**/*.pyc
+**/.DS_Store
+**/client_secret.json
+**/token.json
