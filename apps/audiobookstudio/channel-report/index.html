@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Marutake Channel Report Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>丸竹チャンネル分析室</h1>
+      <div class="controls">
+        <label class="file">
+          <span>CSVを読み込む</span>
+          <input id="allCsv" type="file" accept=".csv" />
+        </label>
+        <button id="loadSample">最新90日レポートを読み込む</button>
+      </div>
+    </header>
+    <section class="helper">
+      <div class="channel-switch">
+        <strong>チャンネル切り替え:</strong>
+        <button id="switchTorimono">捕物朗読チャンネル</button>
+        <button id="switchNinjo">人情朗読チャンネル</button>
+        <span id="currentChannel" class="channel-label">現在: 未選択</span>
+      </div>
+      <p>YouTube分析CSVを読み込んでください。対応ファイル:</p>
+      <ul>
+        <li>youtube_video_report_last_90_days_all_videos.csv</li>
+        <li>youtube_video_report_last_90_days_normal_video.csv</li>
+        <li>youtube_video_report_last_90_days_short_candidate.csv</li>
+        <li>channel_upload_inventory.csv</li>
+        <li>channel_videos_by_author.csv</li>
+      </ul>
+      <div class="preset-buttons">
+        <button id="loadPresetAnalysisReady">分析用レポート（Podcast対応）を読み込む</button>
+        <button id="loadPresetAll">最新90日レポートを読み込む</button>
+        <button id="loadPresetNormal">通常動画レポートを読み込む</button>
+        <button id="loadPresetShort">Short候補レポートを読み込む</button>
+        <button id="loadPresetInventory">アップロード一覧を読み込む</button>
+        <button id="loadPresetAuthor">作家別一覧を読み込む</button>
+      </div>
+      <p id="lastLoaded" class="last-loaded">前回読み込んだファイル: なし</p>
+    </section>
+
+    <nav class="tabs">
+      <button data-tab="overview" class="active">全体概要</button>
+      <button data-tab="videos">動画診断</button>
+      <button data-tab="series">シリーズ分割</button>
+      <button data-tab="playlist">再生リスト切替</button>
+      <button data-tab="hidden">隠れ名作</button>
+      <button data-tab="thumb">サムネ改善</button>
+      <button data-tab="desc">概要欄補強</button>
+      <button data-tab="anthology">総集編候補</button>
+      <button data-tab="author">作家別分析</button>
+      <button data-tab="export">書き出し</button>
+    </nav>
+
+    <main>
+      <section id="overview" class="tab active"></section>
+      <section id="videos" class="tab"></section>
+      <section id="series" class="tab"></section>
+      <section id="playlist" class="tab"></section>
+      <section id="hidden" class="tab"></section>
+      <section id="thumb" class="tab"></section>
+      <section id="desc" class="tab"></section>
+      <section id="anthology" class="tab"></section>
+      <section id="author" class="tab"></section>
+      <section id="export" class="tab"></section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

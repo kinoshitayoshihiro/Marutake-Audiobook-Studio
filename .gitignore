@@ -20,6 +20,38 @@
 !2tb/youtube_channel_report/*.sh
 !2tb/youtube_channel_report/requirements.txt
 
+# Channel report app and shared packages.
+!apps/
+apps/*
+!apps/audiobookstudio/
+apps/audiobookstudio/*
+!apps/audiobookstudio/channel-report/
+!apps/audiobookstudio/channel-report/*.html
+!apps/audiobookstudio/channel-report/*.css
+!apps/audiobookstudio/channel-report/*.js
+!apps/audiobookstudio/channel-report/*.md
+
+!packages/
+packages/*
+!packages/channel-report-engine/
+!packages/channel-report-engine/*.js
+!packages/youtube-analytics/
+!packages/youtube-analytics/*.js
+!packages/shared-types/
+!packages/shared-types/*.md
+
+!docs/
+!docs/*.md
+
+!data/
+data/*
+!data/youtube/
+data/youtube/*
+!data/youtube/reports/
+!data/youtube/inventory/
+!data/youtube/by-author/
+!data/youtube/exports/
+
 # Local execution artifacts and secrets must stay local.
 **/__pycache__/
 **/.venv/
