@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -22,7 +23,10 @@ from google import genai
 # ============================================================
 # 設定
 # ============================================================
-GEMINI_API_KEY = "REDACTED_GOOGLE_API_KEY"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY を環境変数で設定してください。")
 
 BASE = Path(__file__).resolve().parent.parent.parent  # 音本・唄本倶楽部/
 TXT_DIR = BASE / "2tb" / "Reading_library" / "山本周五郎"

@@ -10,8 +10,8 @@ import re
 # ==========================================
 # 1. 設定エリア
 # ==========================================
-YOUTUBE_API_KEY = "REDACTED_GOOGLE_API_KEY"
-GEMINI_API_KEY = "REDACTED_GOOGLE_API_KEY"
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 CHANNEL_ID = "UCeTnkaLU8_MAMSdMFVrf1dw"  # 丸竹書房
 
 OUTPUT_FILE = "marutake_library.csv"
@@ -26,6 +26,9 @@ MIN_DURATION_SECONDS = 61
 # ==========================================
 # 2. ツール関数
 # ==========================================
+if not YOUTUBE_API_KEY or not GEMINI_API_KEY:
+    raise RuntimeError("YOUTUBE_API_KEY と GEMINI_API_KEY を環境変数で設定してください。")
+
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 

@@ -1,12 +1,16 @@
 import google.generativeai as genai
 from googleapiclient.discovery import build
 import json
+import os
 
 # ==========================================
 # 1. 設定エリア (ここに取得したキーを貼ってください)
 # ==========================================
-YOUTUBE_API_KEY = "REDACTED_GOOGLE_API_KEY"
-GEMINI_API_KEY = "REDACTED_GOOGLE_API_KEY"
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+if not YOUTUBE_API_KEY or not GEMINI_API_KEY:
+    raise RuntimeError("YOUTUBE_API_KEY と GEMINI_API_KEY を環境変数で設定してください。")
 
 # テストしたい動画のID (URLの v= の後ろの部分)
 # 例: 丸竹書房様の動画IDを一つ指定してください
