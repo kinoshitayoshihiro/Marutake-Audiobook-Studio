@@ -1,4 +1,4 @@
-export function parseCsv(text) {
+function parseCsv(text) {
   const rows = [];
   let i = 0;
   let field = "";
@@ -63,17 +63,17 @@ export function parseCsv(text) {
   });
 }
 
-export function toNumber(value) {
+function toNumber(value) {
   if (value === null || value === undefined || value === "") return 0;
   const n = Number(String(value).replace(/,/g, ""));
   return Number.isFinite(n) ? n : 0;
 }
 
-export function toBool(value) {
+function toBool(value) {
   return String(value).toLowerCase() === "true";
 }
 
-export function toCsv(rows, headers) {
+function toCsv(rows, headers) {
   const escapeCell = (v) => {
     const s = String(v ?? "");
     if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;

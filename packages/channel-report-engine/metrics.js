@@ -3,7 +3,7 @@ function avg(values) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-export function buildOverview(videos) {
+function buildOverview(videos) {
   const total = videos.length;
   const normal = videos.filter((v) => v.formatType === "通常動画").length;
   const shorts = videos.filter((v) => v.formatType === "Short").length;
@@ -43,7 +43,7 @@ export function buildOverview(videos) {
   };
 }
 
-export function buildFormatBreakdown(videos) {
+function buildFormatBreakdown(videos) {
   const formats = ["通常動画", "Short", "再生リスト", "Podcast", "ライブ動画"];
   return formats.map((name) => {
     const items = videos.filter((v) => v.formatType === name);
@@ -62,7 +62,7 @@ export function buildFormatBreakdown(videos) {
   });
 }
 
-export function groupBy(videos, key) {
+function groupBy(videos, key) {
   const map = new Map();
   videos.forEach((v) => {
     const k = v[key] || "不明";

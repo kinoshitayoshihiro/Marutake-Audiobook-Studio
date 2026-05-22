@@ -1,0 +1,11 @@
+[project]
+name = "marutake-x"
+version = "0.1.0"
+description = "Review-first X draft operations for Marutake audiobook videos."
+requires-python = ">=3.11"
+
+[project.scripts]
+marutake-x = "marutake_x.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

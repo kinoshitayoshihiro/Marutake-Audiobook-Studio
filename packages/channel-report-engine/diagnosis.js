@@ -88,7 +88,7 @@ function detectFormatType(row, title, isShort) {
   return "通常動画";
 }
 
-export function normalizeVideo(row) {
+function normalizeVideo(row) {
   const title = row.title || "";
   const views = Number(row.views || 0);
   const minutes = Number(row.estimatedMinutesWatched || 0);
@@ -138,7 +138,7 @@ function pushUnique(list, value) {
   if (!list.includes(value)) list.push(value);
 }
 
-export function runDiagnosis(videos) {
+function runDiagnosis(videos) {
   const impressionValues = videos.map((v) => v.impressions).filter((v) => v > 0).sort((a, b) => a - b);
   const highImpression = impressionValues[Math.floor(impressionValues.length * 0.75)] || 0;
   const lowImpression = impressionValues[Math.floor(impressionValues.length * 0.25)] || 0;

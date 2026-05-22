@@ -30,6 +30,8 @@ apps/audiobookstudio/*
 !apps/audiobookstudio/channel-report/*.css
 !apps/audiobookstudio/channel-report/*.js
 !apps/audiobookstudio/channel-report/*.md
+!apps/marutake-x/
+!apps/marutake-x/**
 
 !packages/
 packages/*
@@ -59,3 +61,5 @@ data/youtube/*
 **/.DS_Store
 **/client_secret.json
 **/token.json
+**/.env
+**/.marutake-x/

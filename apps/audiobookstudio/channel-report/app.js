@@ -1,7 +1,3 @@
-import { parseCsv, toCsv } from "../../../packages/youtube-analytics/csv.js";
-import { normalizeVideo, runDiagnosis } from "../../../packages/channel-report-engine/diagnosis.js";
-import { buildOverview, buildFormatBreakdown, groupBy } from "../../../packages/channel-report-engine/metrics.js";
-
 const state = {
   videos: [],
   diagnosed: [],
@@ -30,6 +26,14 @@ const PRESETS = {
 
 function fmt(n) {
   return Number(n || 0).toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+}
+
+function setStatus(message, kind = "") {
+  const el = document.querySelector("#loadStatus");
+  if (!el) return;
+  el.classList.remove("ok", "warn");
+  if (kind) el.classList.add(kind);
+  el.textContent = `状態: ${message}`;
 }
 
 function fmtInt(n) {
@@ -86,6 +90,95 @@ function localizeAction(action) {
     "概要欄SEO補強": "検索向けに概要欄を補強する",
   };
   return map[action] || action;
+}
+
+function numberCell(value) {
+  const n = Number(String(value || "").replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function collapseDailyAnalysisRows(rows) {
+  const isDailyAnalysis = rows.some((row) => row.date && row.video_id);
+  if (!isDailyAnalysis) {
+    return { rows, sourceRows: rows.length, collapsed: false };
+  }
+
+  const groups = new Map();
+  rows.forEach((row) => {
+    const videoId = row.videoId || row.video_id;
+    if (!videoId) return;
+    if (!groups.has(videoId)) {
+      groups.set(videoId, {
+        representative: null,
+        sourceRows: 0,
+        views: 0,
+        watchedMinutes: 0,
+        impressions: 0,
+        ctrImpressions: 0,
+      });
+    }
+    const group = groups.get(videoId);
+    group.sourceRows += 1;
+    group.views += numberCell(row.views);
+    group.watchedMinutes += numberCell(row.watch_time_minutes);
+    group.impressions += numberCell(row.impressions);
+    group.ctrImpressions += numberCell(row.impressions) * numberCell(row.impression_ctr);
+    if (row.title && (!group.representative || row.videoId)) {
+      group.representative = row;
+    }
+  });
+
+  const collapsedRows = [];
+  groups.forEach((group, videoId) => {
+    if (!group.representative) return;
+    const row = { ...group.representative };
+    row.videoId = row.videoId || videoId;
+    if (group.views > 0) row.views = String(group.views);
+    if (group.watchedMinutes > 0) row.estimatedMinutesWatched = String(group.watchedMinutes);
+    if (group.impressions > 0) row.impressions = String(group.impressions);
+    if (!row.impressionCtr && group.impressions > 0) {
+      row.impressionCtr = String(group.ctrImpressions / group.impressions);
+    }
+    if (!row.averageViewDuration && group.views > 0 && group.watchedMinutes > 0) {
+      row.averageViewDuration = String((group.watchedMinutes * 60) / group.views);
+    }
+    collapsedRows.push(row);
+  });
+
+  return { rows: collapsedRows, sourceRows: rows.length, collapsed: true };
+}
+
+function requireTitleRows(rows) {
+  if (!rows.length) {
+    throw new Error("CSVにデータ行がありません");
+  }
+  if (!("title" in rows[0])) {
+    throw new Error("CSVヘッダーに title がありません");
+  }
+  return rows;
+}
+
+function mergeAnalysisMetadata(reportRows, analysisRows) {
+  const preparedAnalysis = collapseDailyAnalysisRows(analysisRows).rows;
+  const metadataById = new Map(
+    preparedAnalysis
+      .filter((row) => row.videoId)
+      .map((row) => [row.videoId, row])
+  );
+  let enriched = 0;
+  const rows = reportRows.map((row) => {
+    const metadata = metadataById.get(row.videoId);
+    if (!metadata) return row;
+    enriched += 1;
+    return {
+      ...row,
+      series_name: metadata.series_name || row.series_name,
+      series_sub: metadata.series_sub || row.series_sub,
+      video_format: metadata.video_format || row.video_format,
+      live_or_on_demand: metadata.live_or_on_demand || row.live_or_on_demand,
+    };
+  });
+  return { rows, enriched };
 }
 
 function renderOverview() {
@@ -471,10 +564,24 @@ function renderAll() {
 }
 
 async function loadCsvText(text) {
-  state.videos = parseCsv(text).map(normalizeVideo);
+  const parsed = requireTitleRows(parseCsv(text));
+  const prepared = collapseDailyAnalysisRows(parsed);
+  state.videos = prepared.rows.map(normalizeVideo);
   state.diagnosed = runDiagnosis(state.videos);
   updateChannelLabel();
   renderAll();
+  const message = prepared.collapsed
+    ? `${prepared.sourceRows}行を${state.diagnosed.length}本の動画に集約しました`
+    : `${state.diagnosed.length}件を読み込みました`;
+  setStatus(message, "ok");
+}
+
+function loadRows(rows, status) {
+  state.videos = rows.map(normalizeVideo);
+  state.diagnosed = runDiagnosis(state.videos);
+  updateChannelLabel();
+  renderAll();
+  setStatus(status, "ok");
 }
 
 function setLastLoaded(name) {
@@ -491,6 +598,7 @@ function restoreLastLoaded() {
 
 async function loadPreset(path, label, options = {}) {
   const { silent = false } = options;
+  setStatus(`読み込み中: ${label}`);
   try {
     const res = await fetch(path);
     if (!res.ok) throw new Error("fetch failed");
@@ -501,6 +609,38 @@ async function loadPreset(path, label, options = {}) {
     if (!silent) {
       alert("固定パスの読み込みに失敗しました。file:// では制限される場合があります。CSVファイル選択で読み込んでください。");
     }
+    const detail = location.protocol === "file:"
+      ? "file:// では固定パス読込が制限されます。localhostで開くか、CSVを手動選択してください。"
+      : `読み込み失敗: ${e.message}`;
+    setStatus(detail, "warn");
+    throw e;
+  }
+}
+
+async function loadChannelPreset(reportPath, analysisPath, label, options = {}) {
+  const { silent = false } = options;
+  setStatus(`読み込み中: ${label}`);
+  try {
+    const [reportRes, analysisRes] = await Promise.all([fetch(reportPath), fetch(analysisPath)]);
+    if (!reportRes.ok) throw new Error("チャンネルレポートの取得に失敗しました");
+    const reportRows = requireTitleRows(parseCsv(await reportRes.text()));
+    if (!analysisRes.ok) {
+      loadRows(reportRows, `${reportRows.length}件を読み込みました`);
+      setLastLoaded(label);
+      return;
+    }
+    const analysisRows = requireTitleRows(parseCsv(await analysisRes.text()));
+    const merged = mergeAnalysisMetadata(reportRows, analysisRows);
+    loadRows(
+      merged.rows,
+      `${merged.rows.length}件を読み込み、Podcast判定情報を${merged.enriched}本に補完しました`
+    );
+    setLastLoaded(label);
+  } catch (e) {
+    if (!silent) {
+      alert("チャンネルレポートの固定パス読み込みに失敗しました。CSVファイル選択で読み込んでください。");
+    }
+    setStatus(`読み込み失敗: ${e.message}`, "warn");
     throw e;
   }
 }
@@ -509,30 +649,43 @@ function updateChannelLabel() {
   document.querySelector("#currentChannel").textContent = `現在: ${state.channelName}`;
 }
 
-async function switchChannel(path, label, name) {
-  state.channelName = name;
-  await loadPreset(path, label);
-}
-
-async function switchChannelWithFallback(primaryPath, primaryLabel, fallbackPath, fallbackLabel, name) {
+async function switchMergedChannel(reportPath, analysisPath, fallbackPath, label, name) {
   state.channelName = name;
   try {
-    await loadPreset(primaryPath, primaryLabel, { silent: true });
+    await loadChannelPreset(reportPath, analysisPath, label, { silent: true });
   } catch (e) {
-    await loadPreset(fallbackPath, fallbackLabel, { silent: false });
+    await loadPreset(fallbackPath, label);
   }
 }
 
-document.querySelector("#allCsv").addEventListener("change", async (e) => {
+const fileInput = document.querySelector("#allCsv");
+fileInput.addEventListener("click", () => {
+  // 同じファイルを選び直した場合でも change が発火するようにクリアする
+  fileInput.value = "";
+});
+
+fileInput.addEventListener("change", async (e) => {
   const f = e.target.files?.[0];
   if (!f) return;
-  const txt = await f.text();
-  await loadCsvText(txt);
-  setLastLoaded(f.name);
+  try {
+    setStatus(`読み込み中: ${f.name}`);
+    const txt = await f.text();
+    await loadCsvText(txt);
+    setLastLoaded(f.name);
+  } catch (err) {
+    setStatus(`CSV読込失敗: ${err.message}`, "warn");
+  } finally {
+    // 次回同名ファイル再選択でも確実に change を発火させる
+    e.target.value = "";
+  }
 });
 
 document.querySelector("#loadSample").addEventListener("click", async () => {
-  await loadPreset(PRESETS.sample, "ninjo_channel_report/youtube_video_report_last_90_days_all_videos.csv");
+  await loadChannelPreset(
+    PRESETS.ninjoDirect,
+    PRESETS.analysisReadyNinjo,
+    "ninjo_channel_report/youtube_video_report_last_90_days_all_videos.csv"
+  );
 });
 document.querySelector("#loadPresetAnalysisReady").addEventListener("click", async () => {
   await loadPreset(PRESETS.analysisReady, "ninjo_channel_report/analysis_ready_normal_video.csv");
@@ -543,21 +696,21 @@ document.querySelector("#loadPresetShort").addEventListener("click", async () =>
 document.querySelector("#loadPresetInventory").addEventListener("click", async () => loadPreset(PRESETS.inventory, PRESETS.inventory));
 document.querySelector("#loadPresetAuthor").addEventListener("click", async () => loadPreset(PRESETS.author, PRESETS.author));
 document.querySelector("#switchTorimono").addEventListener("click", async () => {
-  await switchChannelWithFallback(
+  await switchMergedChannel(
+    PRESETS.torimono,
     PRESETS.analysisReadyTorimono,
-    "old_channel_report/analysis_ready_normal_video.csv",
     PRESETS.torimono,
     "old_channel_report/youtube_video_report_last_90_days_all_videos.csv",
-    "捕物朗読チャンネル"
+    "捕物朗読チャンネル",
   );
 });
 document.querySelector("#switchNinjo").addEventListener("click", async () => {
-  await switchChannelWithFallback(
+  await switchMergedChannel(
+    PRESETS.ninjoDirect,
     PRESETS.analysisReadyNinjo,
-    "ninjo_channel_report/analysis_ready_normal_video.csv",
     PRESETS.ninjoDirect,
     "ninjo_channel_report/youtube_video_report_last_90_days_all_videos.csv",
-    "人情朗読チャンネル"
+    "人情朗読チャンネル",
   );
 });
 
@@ -573,12 +726,15 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
 restoreLastLoaded();
 
 const isLocalhost = location.protocol.startsWith("http") && ["localhost", "127.0.0.1"].includes(location.hostname);
+if (location.protocol === "file:") {
+  setStatus("file:// モードです。固定パスボタンが効かない場合はCSVを手動選択してください。", "warn");
+}
 if (isLocalhost) {
-  switchChannelWithFallback(
+  switchMergedChannel(
+    PRESETS.ninjoDirect,
     PRESETS.analysisReadyNinjo,
-    "ninjo_channel_report/analysis_ready_normal_video.csv",
     PRESETS.all,
-    PRESETS.all,
+    "ninjo_channel_report/youtube_video_report_last_90_days_all_videos.csv",
     "固定パス（Podcast対応）"
   );
 }

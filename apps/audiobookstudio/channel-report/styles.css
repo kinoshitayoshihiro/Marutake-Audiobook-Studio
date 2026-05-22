@@ -54,6 +54,9 @@ button {
 .helper ul { margin: 4px 0 10px 18px; padding: 0; color: var(--muted); font-size: 12px; }
 .preset-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .last-loaded { color: var(--accent); font-size: 12px; }
+.status { font-size: 12px; color: #334155; margin-top: 6px; }
+.status.ok { color: var(--ok); }
+.status.warn { color: var(--warn); }
 .channel-switch {
   display: flex;
   flex-wrap: wrap;

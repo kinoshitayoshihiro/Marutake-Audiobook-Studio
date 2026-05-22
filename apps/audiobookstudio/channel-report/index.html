@@ -41,6 +41,7 @@
         <button id="loadPresetAuthor">作家別一覧を読み込む</button>
       </div>
       <p id="lastLoaded" class="last-loaded">前回読み込んだファイル: なし</p>
+      <p id="loadStatus" class="status">状態: 待機中</p>
     </section>
 
     <nav class="tabs">
@@ -69,6 +70,9 @@
       <section id="export" class="tab"></section>
     </main>
 
-    <script type="module" src="./app.js"></script>
+    <script src="../../../packages/youtube-analytics/csv.js"></script>
+    <script src="../../../packages/channel-report-engine/diagnosis.js"></script>
+    <script src="../../../packages/channel-report-engine/metrics.js"></script>
+    <script src="./app.js"></script>
   </body>
 </html>
