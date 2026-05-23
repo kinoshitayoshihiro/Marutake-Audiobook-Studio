@@ -32,6 +32,11 @@ class Video:
     aftertalk_notes: str = ""
     unused_trivia_notes: str = ""
     thumbnail_catchcopy: str = ""
+    account_name: str = "丸竹書房 編集部"
+    video_kind: str = ""
+    thumbnail_notes: str = ""
+    x_drafts: list[dict[str, Any]] = field(default_factory=list)
+    youtube_community_drafts: list[dict[str, Any]] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
 
     @classmethod
@@ -47,6 +52,8 @@ class Video:
                 "genre": _as_list(data.get("genre")),
                 "characters": _as_list(data.get("characters")),
                 "glossary": _as_list(data.get("glossary")),
+                "x_drafts": _as_drafts(data.get("x_drafts")),
+                "youtube_community_drafts": _as_drafts(data.get("youtube_community_drafts")),
                 "tags": _as_list(data.get("tags")),
             }
         )
@@ -96,3 +103,30 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
     return [str(value).strip()]
+
+
+def _as_drafts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    drafts = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+        selected = bool(item.get("selected", item.get("status") in {"reviewed", "scheduled", "posted"}))
+        drafts.append(
+            {
+                "kind": str(item.get("kind", "draft")).strip() or "draft",
+                "title": str(item.get("title", "")).strip(),
+                "status": str(item.get("status", "draft")).strip() or "draft",
+                "selected": selected,
+                "candidate": bool(item.get("candidate", not selected)),
+                "scheduled_date": str(item.get("scheduled_date", "")).strip(),
+                "text": text,
+                "image_note": str(item.get("image_note", "")).strip(),
+                "memo": str(item.get("memo", "")).strip(),
+            }
+        )
+    return drafts

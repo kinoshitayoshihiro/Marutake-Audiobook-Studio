@@ -5,7 +5,7 @@ import io
 import json
 from typing import Any
 
-from .models import Video
+from .models import Video, char_count
 
 
 CSV_HEADERS = [
@@ -60,20 +60,47 @@ def _markdown(
     articles: list[dict[str, Any]],
     calendar: list[dict[str, Any]],
 ) -> str:
+    selected_x = [draft for draft in video.x_drafts if draft.get("selected")]
+    candidate_x = [draft for draft in video.x_drafts if not draft.get("selected")]
+    selected_youtube = [draft for draft in video.youtube_community_drafts if draft.get("selected")]
+    candidate_youtube = [draft for draft in video.youtube_community_drafts if not draft.get("selected")]
     lines = [
-        f"# X運用メモ | {video.work_title}",
+        f"# 投稿素材パック | {video.work_title}",
         "",
         "## 動画情報",
         "",
         f"- 作者: {video.author}",
         f"- シリーズ: {video.series_name or '-'}",
+        f"- 動画種別: {video.video_kind or '-'}",
+        f"- 発信名義: {video.account_name or '-'}",
+        f"- サムネイルコピー: {video.thumbnail_catchcopy or '-'}",
+        f"- サムネイル構成: {video.thumbnail_notes or '-'}",
         f"- 公開日: {video.publish_date}",
         f"- URL: {video.youtube_url}",
         f"- あらすじ: {video.summary_short or '-'}",
         "",
-        "## 投稿案",
+        "## 採用X文案",
         "",
     ]
+    for index, draft in enumerate(selected_x, start=1):
+        lines.extend(_draft_block(index, draft, video.youtube_url, video.tags))
+    if candidate_x:
+        lines.extend(["## 候補X文案", ""])
+        for index, draft in enumerate(candidate_x, start=1):
+            lines.extend(_draft_block(index, draft, video.youtube_url, video.tags))
+    lines.extend(["## 採用YouTubeコミュニティ文案", ""])
+    for index, draft in enumerate(selected_youtube, start=1):
+        lines.extend(_draft_block(index, draft, "", []))
+    if candidate_youtube:
+        lines.extend(["## 候補YouTubeコミュニティ文案", ""])
+        for index, draft in enumerate(candidate_youtube, start=1):
+            lines.extend(_draft_block(index, draft, "", []))
+    lines.extend(
+        [
+            "## 生成投稿案",
+            "",
+        ]
+    )
     for post in posts:
         warning = " 警告: 280字超" if post.get("over_limit") else ""
         lines.extend(
@@ -99,3 +126,30 @@ def _markdown(
     for item in calendar:
         lines.append(f"| {item['scheduled_date']} | {item['label']} | {item['status']} | {item['post_id'] or '-'} |")
     return "\n".join(lines).strip() + "\n"
+
+
+def _draft_block(index: int, draft: dict[str, Any], youtube_url: str, hashtags: list[str]) -> list[str]:
+    title = draft.get("title") or draft.get("kind") or f"draft-{index}"
+    markers = []
+    if draft.get("selected"):
+        markers.append("selected")
+    if draft.get("candidate"):
+        markers.append("candidate")
+    if draft.get("scheduled_date"):
+        markers.append(str(draft["scheduled_date"]))
+    marker_text = f" | {' / '.join(markers)}" if markers else ""
+    lines = [
+        f"### {index}. {title} | {draft.get('kind', 'draft')} | {draft.get('status', 'draft')}{marker_text}",
+        "",
+        "```text",
+        draft["text"],
+        "```",
+        "",
+        f"文字数目安: {char_count(draft['text'], youtube_url, hashtags)}",
+        "",
+    ]
+    if draft.get("image_note"):
+        lines.extend([f"画像メモ: {draft['image_note']}", ""])
+    if draft.get("memo"):
+        lines.extend([f"運用メモ: {draft['memo']}", ""])
+    return lines

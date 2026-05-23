@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from marutake_x.checks import duplicate_report
-from marutake_x.exporters import posts_csv
+from marutake_x.exporters import export_bundle, posts_csv
 from marutake_x.generators import calendar, generate_posts, generate_thread, post_payloads
 from marutake_x.models import Video, char_count
 from marutake_x.providers import DummyProvider
@@ -72,6 +72,44 @@ class MarutakeXTests(unittest.TestCase):
         items = calendar(video, post_payloads(thread_posts))
         thread_item = [item for item in items if item["post_type"] == "thread"][0]
         self.assertEqual(thread_item["post_id"], thread_posts[0].post_id)
+
+    def test_markdown_export_includes_curated_drafts(self) -> None:
+        video = Video.from_mapping(
+            {
+                **sample_video().to_dict(),
+                "x_drafts": [{"kind": "single", "title": "手動投稿", "status": "reviewed", "text": "登録済みX文案"}],
+                "youtube_community_drafts": [{"kind": "published", "selected": True, "text": "コミュニティ文案"}],
+            }
+        )
+        markdown = export_bundle({"posts": {}, "threads": {}, "articles": {}, "calendar": []}, video, "markdown")
+        self.assertIn("## 採用X文案", markdown)
+        self.assertIn("selected", markdown)
+        self.assertIn("```text\n登録済みX文案\n```", markdown)
+        self.assertIn("登録済みX文案", markdown)
+        self.assertIn("コミュニティ文案", markdown)
+
+    def test_curated_drafts_keep_selection_metadata(self) -> None:
+        video = Video.from_mapping(
+            {
+                **sample_video().to_dict(),
+                "x_drafts": [
+                    {
+                        "kind": "single",
+                        "status": "draft",
+                        "selected": False,
+                        "candidate": True,
+                        "scheduled_date": "2026-05-23",
+                        "text": "候補文案",
+                        "memo": "初回手動投稿の予備",
+                    }
+                ],
+            }
+        )
+        draft = video.x_drafts[0]
+        self.assertFalse(draft["selected"])
+        self.assertTrue(draft["candidate"])
+        self.assertEqual(draft["scheduled_date"], "2026-05-23")
+        self.assertEqual(draft["memo"], "初回手動投稿の予備")
 
     def test_duplicate_report_flags_promo_runs(self) -> None:
         report = duplicate_report(
