@@ -11,8 +11,10 @@ from .exporters import export_bundle, posts_csv
 from .generators import calendar, generate_article, generate_posts, generate_thread, post_payloads
 from .input_loader import load_mapping
 from .models import STYLE_PRESETS, Video
+from .publisher import import_x_drafts, publish_post, publish_thread
 from .providers import llm_provider, research_provider, suggest_queries
 from .store import JsonStore
+from .x_client import XApiClient
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,6 +117,29 @@ def cmd_duplicates(store: JsonStore, args: argparse.Namespace) -> int:
     return 1 if has_findings(report) and args.strict else 0
 
 
+def cmd_import_x_drafts(store: JsonStore, args: argparse.Namespace) -> int:
+    posts = import_x_drafts(store, args.video_id, selected_only=not args.include_candidates)
+    print(f"imported X drafts: {len(posts)}")
+    for post in posts:
+        warning = " warning:280字超" if post.get("over_limit") else ""
+        print(f"{post['post_id']}\t{post['post_type']}\t{post['status']}\t{post['char_count']}字{warning}")
+    return 0
+
+
+def cmd_publish_x(store: JsonStore, args: argparse.Namespace) -> int:
+    client = XApiClient() if args.live else _DryRunXClient()
+    result = publish_post(store, args.post_id, client, dry_run=not args.live, allow_over_limit=args.allow_over_limit)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_publish_x_thread(store: JsonStore, args: argparse.Namespace) -> int:
+    client = XApiClient() if args.live else _DryRunXClient()
+    results = publish_thread(store, args.video_id, client, dry_run=not args.live, allow_over_limit=args.allow_over_limit)
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_research(store: JsonStore, args: argparse.Namespace) -> int:
     report = research_provider(args.provider).research(store.video(args.video_id))
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -166,6 +191,15 @@ def _parser() -> argparse.ArgumentParser:
     duplicate.add_argument("--video-id")
     duplicate.add_argument("--strict", action="store_true")
     duplicate.add_argument("--status", help="確認対象ステータス。例: reviewed,scheduled,posted。未指定なら全件")
+    import_drafts = _video_sub(sub, "import-x-drafts", cmd_import_x_drafts)
+    import_drafts.add_argument("--include-candidates", action="store_true", help="candidate文案もDB投稿として取り込む")
+    publish_x = _sub(sub, "publish-x", cmd_publish_x)
+    publish_x.add_argument("post_id")
+    publish_x.add_argument("--live", action="store_true", help="実際にXへ投稿する。未指定ならdry-run")
+    publish_x.add_argument("--allow-over-limit", action="store_true", help="280字超でも送信を許可する")
+    publish_thread = _video_sub(sub, "publish-x-thread", cmd_publish_x_thread)
+    publish_thread.add_argument("--live", action="store_true", help="実際にXへツリー投稿する。未指定ならdry-run")
+    publish_thread.add_argument("--allow-over-limit", action="store_true", help="280字超でも送信を許可する")
     research = _video_sub(sub, "research", cmd_research)
     research.add_argument("--provider", default="noop", choices=["noop", "hermes-x-search"])
     _video_sub(sub, "suggest-queries", cmd_queries)
@@ -187,6 +221,11 @@ def _video_sub(sub: Any, name: str, func: Any) -> argparse.ArgumentParser:
 def _provider_options(parser: argparse.ArgumentParser, default_style: str = "marutake_editorial") -> None:
     parser.add_argument("--style", default=default_style, choices=sorted(STYLE_PRESETS))
     parser.add_argument("--provider", default="dummy", choices=["dummy", "openai"])
+
+
+class _DryRunXClient:
+    def create_post(self, text: str, reply_to_post_id: str = "") -> dict[str, Any]:
+        return {"data": {"id": "dry-run", "text": text}, "reply_to_post_id": reply_to_post_id}
 
 
 if __name__ == "__main__":

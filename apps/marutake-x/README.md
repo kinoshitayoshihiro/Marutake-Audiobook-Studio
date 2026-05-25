@@ -2,7 +2,7 @@
 
 `marutake-x` is a review-first local CLI for turning Marutake YouTube audiobook materials into X drafts.
 It stores video inputs, draft posts, threads, long-form article drafts, calendars, and post review statuses in a local JSON file.
-The initial release does not post to X. The default account voice is **丸竹書房 編集部**.
+Live X posting is available only through explicit reviewed-post commands. The default account voice is **丸竹書房 編集部**.
 
 ## Scope
 
@@ -13,6 +13,7 @@ The initial release does not post to X. The default account voice is **丸竹書
 - Track `draft`, `reviewed`, `scheduled`, `posted`, and `skipped`.
 - Export Markdown, CSV, and JSON for manual review or reservation tooling.
 - Check X text length and draft repetition signals. Use `--status reviewed,scheduled,posted` when you want to inspect only drafts that are actually moving toward publication.
+- Publish reviewed X posts through the X API after an explicit `--live` command.
 - Keep LLM and X research behind provider interfaces.
 
 ## Setup
@@ -34,6 +35,9 @@ marutake-x list
 
 `OpenAIProvider` is optional. It uses the OpenAI Responses API through the `openai` Python package and `OPENAI_API_KEY`.
 Copy values from `.env.example` into the local environment when using it. Do not commit secrets.
+
+Live X posting is optional. It uses the X API v2 `POST /2/tweets` endpoint with a user access token that has `tweet.write` permission.
+Set `MARUTAKE_X_USER_ACCESS_TOKEN` only in your local environment.
 
 ## Input
 
@@ -75,9 +79,34 @@ python3 -m marutake_x list
 python3 -m marutake_x status POST_ID reviewed
 python3 -m marutake_x check-duplicates
 python3 -m marutake_x check-duplicates --status reviewed,scheduled,posted
+python3 -m marutake_x import-x-drafts yamamoto-nioi-001
+python3 -m marutake_x publish-x POST_ID
+python3 -m marutake_x publish-x POST_ID --live
+python3 -m marutake_x publish-x-thread yamamoto-nioi-001 --live
 ```
 
 Use `--db path/to/db.json` before the subcommand to isolate a project or test run.
+
+## X Posting Flow
+
+The app is intentionally review-gated:
+
+1. Register or generate draft material.
+2. Export Markdown and read the actual copy.
+3. Mark only approved posts as `reviewed` or `scheduled`.
+4. Run `publish-x POST_ID` without `--live` to preview the exact text.
+5. Run `publish-x POST_ID --live` to create the X Post.
+
+For hand-written `x_drafts`, first import the selected drafts into the post database:
+
+```bash
+python3 -m marutake_x import-x-drafts nagai-zaka-summary-vol-1
+python3 -m marutake_x publish-x curated_nagai-zaka-summary-vol-1_01_single
+python3 -m marutake_x publish-x curated_nagai-zaka-summary-vol-1_01_single --live
+```
+
+`publish-x-thread VIDEO_ID --live` posts reviewed thread rows in sequence and replies each later post to the previous X post.
+The command refuses `draft`, `skipped`, already-posted, empty, or over-280-character posts unless `--allow-over-limit` is explicitly supplied.
 
 ## ながい坂 第一巻 投稿テスト
 
@@ -92,6 +121,7 @@ python3 -m marutake_x --db .marutake-x/nagai-zaka-test.json export nagai-zaka-su
 
 Before real posting, replace the placeholder `youtube_url` and adjust `publish_date` in the sample JSON.
 The workflow remains manual: copy from the Markdown pack into X or YouTube Studio after human review.
+If you use live X posting, keep the same human-review step and only post rows that have been marked `reviewed` or `scheduled`.
 
 ## Output
 

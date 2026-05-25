@@ -8,6 +8,7 @@ from marutake_x.checks import duplicate_report
 from marutake_x.exporters import export_bundle, posts_csv
 from marutake_x.generators import calendar, generate_posts, generate_thread, post_payloads
 from marutake_x.models import Video, char_count
+from marutake_x.publisher import import_x_drafts, publish_post, publish_thread
 from marutake_x.providers import DummyProvider
 from marutake_x.store import JsonStore
 
@@ -30,6 +31,16 @@ def sample_video() -> Video:
             "tags": ["#朗読", "#山本周五郎"],
         }
     )
+
+
+class FakeXClient:
+    def __init__(self) -> None:
+        self.posts: list[dict[str, str]] = []
+
+    def create_post(self, text: str, reply_to_post_id: str = "") -> dict[str, object]:
+        post_id = f"x-{len(self.posts) + 1}"
+        self.posts.append({"id": post_id, "text": text, "reply_to_post_id": reply_to_post_id})
+        return {"data": {"id": post_id, "text": text}}
 
 
 class MarutakeXTests(unittest.TestCase):
@@ -128,6 +139,61 @@ class MarutakeXTests(unittest.TestCase):
         self.assertTrue(report["same_youtube_url_runs"])
         self.assertTrue(report["same_opening_patterns"])
         self.assertTrue(report["direct_promo_runs"])
+
+    def test_import_x_drafts_and_publish_reviewed_post(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = JsonStore(Path(temp) / "db.json")
+            video = Video.from_mapping(
+                {
+                    **sample_video().to_dict(),
+                    "x_drafts": [{"kind": "single", "title": "採用", "status": "reviewed", "text": "レビュー済み投稿"}],
+                }
+            )
+            store.add_video(video)
+            posts = import_x_drafts(store, "video-001")
+            self.assertEqual(len(posts), 1)
+            client = FakeXClient()
+            result = publish_post(store, posts[0]["post_id"], client, dry_run=False)
+            self.assertEqual(result["x_post_id"], "x-1")
+            stored = store.posts("video-001")[0]
+            self.assertEqual(stored["status"], "posted")
+            self.assertEqual(stored["x_post_id"], "x-1")
+            self.assertIn("https://www.youtube.com/watch?v=example", client.posts[0]["text"])
+
+    def test_publish_rejects_unreviewed_post(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = JsonStore(Path(temp) / "db.json")
+            store.add_video(
+                Video.from_mapping(
+                    {
+                        **sample_video().to_dict(),
+                        "x_drafts": [{"kind": "single", "selected": True, "status": "draft", "text": "未確認投稿"}],
+                    }
+                )
+            )
+            posts = import_x_drafts(store, "video-001")
+            with self.assertRaises(ValueError):
+                publish_post(store, posts[0]["post_id"], FakeXClient(), dry_run=False)
+
+    def test_publish_thread_posts_replies_in_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = JsonStore(Path(temp) / "db.json")
+            store.add_video(
+                Video.from_mapping(
+                    {
+                        **sample_video().to_dict(),
+                        "x_drafts": [
+                            {"kind": "thread", "status": "reviewed", "text": "一つ目"},
+                            {"kind": "thread", "status": "reviewed", "text": "二つ目"},
+                        ],
+                    }
+                )
+            )
+            import_x_drafts(store, "video-001")
+            client = FakeXClient()
+            results = publish_thread(store, "video-001", client, dry_run=False)
+            self.assertEqual([result["x_post_id"] for result in results], ["x-1", "x-2"])
+            self.assertEqual(client.posts[1]["reply_to_post_id"], "x-1")
 
 
 if __name__ == "__main__":

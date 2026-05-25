@@ -67,6 +67,11 @@ class JsonStore:
         data["posts"].update({post["post_id"]: post for post in posts})
         self.save(data)
 
+    def upsert_posts(self, posts: list[dict[str, Any]]) -> None:
+        data = self.load()
+        data["posts"].update({post["post_id"]: post for post in posts})
+        self.save(data)
+
     def posts(self, video_id: str | None = None) -> list[dict[str, Any]]:
         posts = list(self.load()["posts"].values())
         if video_id:
