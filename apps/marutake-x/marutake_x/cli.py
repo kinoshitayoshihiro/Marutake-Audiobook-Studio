@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .checks import duplicate_report, has_findings
+from .envfile import update_env_file
 from .exporters import export_bundle, posts_csv
 from .generators import calendar, generate_article, generate_posts, generate_thread, post_payloads
 from .input_loader import load_mapping
@@ -15,6 +16,16 @@ from .publisher import import_x_drafts, publish_post, publish_thread
 from .providers import llm_provider, research_provider, suggest_queries
 from .store import JsonStore
 from .x_client import XApiClient
+from .x_oauth import (
+    DEFAULT_REDIRECT_URI,
+    DEFAULT_SCOPES,
+    create_authorization_url,
+    exchange_authorization_code,
+    load_oauth_state,
+    redacted_token_response,
+    refresh_access_token,
+    token_env_values,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,6 +151,42 @@ def cmd_publish_x_thread(store: JsonStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_x_oauth_url(store: JsonStore, args: argparse.Namespace) -> int:
+    payload = create_authorization_url(
+        client_id=args.client_id,
+        redirect_uri=args.redirect_uri,
+        scopes=_scopes(args.scope),
+        state=args.state,
+        state_file=args.state_file,
+    )
+    print(payload["authorize_url"])
+    print(f"state_file: {args.state_file}")
+    print(f"callback_url: {args.redirect_uri}")
+    print("認可後、callback URL の code パラメータを x-oauth-token に渡してください。")
+    return 0
+
+
+def cmd_x_oauth_token(store: JsonStore, args: argparse.Namespace) -> int:
+    state = load_oauth_state(args.state_file)
+    if args.state and args.state != state.get("state"):
+        raise ValueError("state が一致しません")
+    response = exchange_authorization_code(
+        code=args.code,
+        client_id=args.client_id or state["client_id"],
+        redirect_uri=args.redirect_uri or state["redirect_uri"],
+        code_verifier=args.code_verifier or state["code_verifier"],
+        client_secret=args.client_secret,
+    )
+    _save_or_print_token_response(response, args.env_file)
+    return 0
+
+
+def cmd_x_oauth_refresh(store: JsonStore, args: argparse.Namespace) -> int:
+    response = refresh_access_token(args.refresh_token, args.client_id, args.client_secret)
+    _save_or_print_token_response(response, args.env_file)
+    return 0
+
+
 def cmd_research(store: JsonStore, args: argparse.Namespace) -> int:
     report = research_provider(args.provider).research(store.video(args.video_id))
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -200,6 +247,26 @@ def _parser() -> argparse.ArgumentParser:
     publish_thread = _video_sub(sub, "publish-x-thread", cmd_publish_x_thread)
     publish_thread.add_argument("--live", action="store_true", help="実際にXへツリー投稿する。未指定ならdry-run")
     publish_thread.add_argument("--allow-over-limit", action="store_true", help="280字超でも送信を許可する")
+    oauth_url = _sub(sub, "x-oauth-url", cmd_x_oauth_url)
+    oauth_url.add_argument("--client-id", required=True, help="X Developer Portal の OAuth 2.0 Client ID")
+    oauth_url.add_argument("--redirect-uri", default=DEFAULT_REDIRECT_URI, help="X Developer Portal に登録した callback URL")
+    oauth_url.add_argument("--scope", action="append", help="OAuth scope。複数指定可。未指定なら投稿用の標準scope")
+    oauth_url.add_argument("--state", help="任意のOAuth state。未指定なら自動生成")
+    oauth_url.add_argument("--state-file", default=".marutake-x/x-oauth-state.json", help="PKCE code_verifier 保存先")
+    oauth_token = _sub(sub, "x-oauth-token", cmd_x_oauth_token)
+    oauth_token.add_argument("--code", required=True, help="callback URL の code パラメータ")
+    oauth_token.add_argument("--state", help="callback URL の state パラメータ。指定時は保存済みstateと照合")
+    oauth_token.add_argument("--state-file", default=".marutake-x/x-oauth-state.json", help="x-oauth-url が保存したstate file")
+    oauth_token.add_argument("--client-id", help="通常はstate fileから読むため省略可")
+    oauth_token.add_argument("--redirect-uri", help="通常はstate fileから読むため省略可")
+    oauth_token.add_argument("--code-verifier", help="通常はstate fileから読むため省略可")
+    oauth_token.add_argument("--client-secret", default="", help="Confidential client の場合のみ指定")
+    oauth_token.add_argument("--env-file", default=".env", help="token保存先。.env はgitignore対象")
+    oauth_refresh = _sub(sub, "x-oauth-refresh", cmd_x_oauth_refresh)
+    oauth_refresh.add_argument("--client-id", required=True, help="X Developer Portal の OAuth 2.0 Client ID")
+    oauth_refresh.add_argument("--refresh-token", required=True, help="MARUTAKE_X_REFRESH_TOKEN の値")
+    oauth_refresh.add_argument("--client-secret", default="", help="Confidential client の場合のみ指定")
+    oauth_refresh.add_argument("--env-file", default=".env", help="更新後token保存先")
     research = _video_sub(sub, "research", cmd_research)
     research.add_argument("--provider", default="noop", choices=["noop", "hermes-x-search"])
     _video_sub(sub, "suggest-queries", cmd_queries)
@@ -226,6 +293,23 @@ def _provider_options(parser: argparse.ArgumentParser, default_style: str = "mar
 class _DryRunXClient:
     def create_post(self, text: str, reply_to_post_id: str = "") -> dict[str, Any]:
         return {"data": {"id": "dry-run", "text": text}, "reply_to_post_id": reply_to_post_id}
+
+
+def _scopes(values: list[str] | None) -> list[str]:
+    if not values:
+        return DEFAULT_SCOPES
+    scopes: list[str] = []
+    for value in values:
+        scopes.extend(item for item in value.replace(",", " ").split() if item)
+    return scopes
+
+
+def _save_or_print_token_response(response: dict[str, Any], env_file: str) -> None:
+    values = token_env_values(response)
+    if values:
+        update_env_file(env_file, values)
+        print(f"saved: {', '.join(sorted(values))} -> {env_file}")
+    print(json.dumps(redacted_token_response(response), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

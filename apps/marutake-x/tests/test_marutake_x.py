@@ -11,6 +11,7 @@ from marutake_x.models import Video, char_count
 from marutake_x.publisher import import_x_drafts, publish_post, publish_thread
 from marutake_x.providers import DummyProvider
 from marutake_x.store import JsonStore
+from marutake_x.x_oauth import create_authorization_url, redacted_token_response, token_env_values
 
 
 def sample_video() -> Video:
@@ -194,6 +195,28 @@ class MarutakeXTests(unittest.TestCase):
             results = publish_thread(store, "video-001", client, dry_run=False)
             self.assertEqual([result["x_post_id"] for result in results], ["x-1", "x-2"])
             self.assertEqual(client.posts[1]["reply_to_post_id"], "x-1")
+
+    def test_x_oauth_authorization_url_uses_pkce_and_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            state_file = Path(temp) / "state.json"
+            payload = create_authorization_url("client-123", state_file=state_file)
+            self.assertTrue(payload["authorize_url"].startswith("https://x.com/i/oauth2/authorize?"))
+            self.assertIn("tweet.write", payload["scope"])
+            self.assertEqual(payload["code_challenge_method"], "S256")
+            self.assertTrue(state_file.exists())
+
+    def test_x_oauth_token_env_values_are_redacted_for_output(self) -> None:
+        response = {"access_token": "abcdef1234567890", "refresh_token": "refresh1234567890", "expires_in": 7200}
+        self.assertEqual(
+            token_env_values(response),
+            {
+                "MARUTAKE_X_USER_ACCESS_TOKEN": "abcdef1234567890",
+                "MARUTAKE_X_REFRESH_TOKEN": "refresh1234567890",
+            },
+        )
+        redacted = redacted_token_response(response)
+        self.assertEqual(redacted["access_token"], "abcdef...7890")
+        self.assertEqual(redacted["refresh_token"], "refres...7890")
 
 
 if __name__ == "__main__":

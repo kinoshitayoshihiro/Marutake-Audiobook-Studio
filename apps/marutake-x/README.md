@@ -37,7 +37,8 @@ marutake-x list
 Copy values from `.env.example` into the local environment when using it. Do not commit secrets.
 
 Live X posting is optional. It uses the X API v2 `POST /2/tweets` endpoint with a user access token that has `tweet.write` permission.
-Set `MARUTAKE_X_USER_ACCESS_TOKEN` only in your local environment.
+Use OAuth 2.0 Authorization Code Flow with PKCE to obtain `MARUTAKE_X_USER_ACCESS_TOKEN`.
+Keep `.env` local only; it is ignored by Git.
 
 ## Input
 
@@ -83,9 +84,72 @@ python3 -m marutake_x import-x-drafts yamamoto-nioi-001
 python3 -m marutake_x publish-x POST_ID
 python3 -m marutake_x publish-x POST_ID --live
 python3 -m marutake_x publish-x-thread yamamoto-nioi-001 --live
+python3 -m marutake_x x-oauth-url --client-id CLIENT_ID
+python3 -m marutake_x x-oauth-token --code AUTHORIZATION_CODE
+python3 -m marutake_x x-oauth-refresh --client-id CLIENT_ID --refresh-token REFRESH_TOKEN
 ```
 
 Use `--db path/to/db.json` before the subcommand to isolate a project or test run.
+
+## X OAuth Setup
+
+Create and configure the app in the [X Developer Portal](https://developer.x.com/en/portal/dashboard).
+
+1. Open the X Developer Portal and select your Project/App.
+2. Enable OAuth 2.0.
+3. Set App permissions to read and write.
+4. Set Type of App to a public client for local CLI use, unless you intentionally manage a confidential client secret.
+5. Add this callback URL:
+
+```text
+http://127.0.0.1:8765/callback
+```
+
+The posting flow needs these scopes:
+
+```text
+tweet.read tweet.write users.read offline.access
+```
+
+Generate the OAuth authorization URL:
+
+```bash
+python3 -m marutake_x x-oauth-url \
+  --client-id YOUR_X_OAUTH2_CLIENT_ID \
+  --redirect-uri http://127.0.0.1:8765/callback
+```
+
+Open the printed URL in a browser, approve the app, and copy the `code` parameter from the redirected callback URL.
+The callback can fail to load in the browser if no local web server is running; that is fine as long as the address bar contains `code=...` and `state=...`.
+
+Exchange the authorization code for tokens:
+
+```bash
+python3 -m marutake_x x-oauth-token \
+  --code AUTHORIZATION_CODE_FROM_CALLBACK \
+  --state STATE_FROM_CALLBACK
+```
+
+By default this writes the returned values into local `.env`:
+
+```text
+MARUTAKE_X_USER_ACCESS_TOKEN=...
+MARUTAKE_X_REFRESH_TOKEN=...
+```
+
+`.env` is ignored by Git. Do not paste real tokens into `.env.example`, README, sample JSON, commit messages, or chat.
+`.env.example` intentionally contains variable names only.
+
+If the access token expires, refresh it:
+
+```bash
+python3 -m marutake_x x-oauth-refresh \
+  --client-id YOUR_X_OAUTH2_CLIENT_ID \
+  --refresh-token YOUR_SAVED_MARUTAKE_X_REFRESH_TOKEN
+```
+
+For a confidential client, add `--client-secret YOUR_CLIENT_SECRET` to `x-oauth-token` and `x-oauth-refresh`.
+Do not commit the client secret.
 
 ## X Posting Flow
 
@@ -107,6 +171,18 @@ python3 -m marutake_x publish-x curated_nagai-zaka-summary-vol-1_01_single --liv
 
 `publish-x-thread VIDEO_ID --live` posts reviewed thread rows in sequence and replies each later post to the previous X post.
 The command refuses `draft`, `skipped`, already-posted, empty, or over-280-character posts unless `--allow-over-limit` is explicitly supplied.
+
+Dry-run never posts to X:
+
+```bash
+python3 -m marutake_x --db .marutake-x/kumokiri-posting.json publish-x-thread kumokiri-enmacho-tree-2026-05-25
+```
+
+After human review, `--live` posts to X using `MARUTAKE_X_USER_ACCESS_TOKEN` from `.env` or the environment:
+
+```bash
+python3 -m marutake_x --db .marutake-x/kumokiri-posting.json publish-x-thread kumokiri-enmacho-tree-2026-05-25 --live
+```
 
 ## ながい坂 第一巻 投稿テスト
 
@@ -161,4 +237,3 @@ Hermes/Grok research remains optional. X search should inform original drafts; i
 - Provider-backed draft refinement and source-aware fact checking.
 - Optional Hermes Agent / Grok research adapter.
 - Optional reservation export adapters.
-- X API posting only after a separate approval-focused design pass.

@@ -6,6 +6,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Protocol
 
+from .envfile import load_env_file
+
 
 class XPostClient(Protocol):
     def create_post(self, text: str, reply_to_post_id: str = "") -> dict[str, Any]:
@@ -14,6 +16,7 @@ class XPostClient(Protocol):
 
 class XApiClient:
     def __init__(self, access_token: str | None = None, endpoint: str | None = None):
+        load_env_file()
         self.access_token = access_token or os.getenv("MARUTAKE_X_USER_ACCESS_TOKEN") or os.getenv("X_USER_ACCESS_TOKEN")
         self.endpoint = endpoint or os.getenv("MARUTAKE_X_POST_ENDPOINT", "https://api.x.com/2/tweets")
         if not self.access_token:
